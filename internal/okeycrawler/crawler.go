@@ -31,35 +31,9 @@ func NewOkeyCrawler() *okeyCrawler {
 	}
 }
 
-func (c *okeyCrawler) LoadPages() ([]*dto.ProductInfo, error) {
-	config := cfg.GetConfig()
-
-	// Для сбора инфорамции используется chromedp
-	// Это либа использует хром для перехода на страницы
-	// Причем, либа сама хэндлит кукесы и, благодаря испольованию браузера,
-	// позволяет обходить защиту от ботов (последнее справедливо для форки chromedp-undetected)
-
-	crawlerOptions := []cu.Option{
-		cu.WithTimeout(40 * time.Second),
-	}
-
-	// Либа позволяет работать в "безголовом" режиме
-	// На винде это не работает безголовый режим,
-	// то есть на время работы тулзы браузер будет открываться
-	if config.Headless {
-		crawlerOptions = append(crawlerOptions, cu.WithHeadless())
-	}
-
-	ctx, cancel, err := cu.New(cu.NewConfig(crawlerOptions...))
-	if err != nil {
-		return nil, fmt.Errorf("Ошибка инициализации кроулера: %w", err)
-	}
-	defer cancel()
-
-	c.addListeners(ctx)
-
+func (c *okeyCrawler) LoadPages(ctx context.Context, url string) ([]*dto.ProductInfo, error) {
 	// Загружаем первую страницу категории
-	initialPageUrl := fmt.Sprintf(okeyBaseUrl, config.Category)
+	initialPageUrl := url
 	fmt.Printf("Загружаеим начальную страницу: %s\n", initialPageUrl)
 
 	html, err := c.loadPage(ctx, initialPageUrl)
@@ -82,7 +56,7 @@ func (c *okeyCrawler) LoadPages() ([]*dto.ProductInfo, error) {
 	if amountOfPages := *amountOfPagesPtr; amountOfPages > 1 {
 		for i := 2; i <= amountOfPages; i++ {
 			n := (i - 1) * okeyAmountOfGoods
-			nextPageUrl := fmt.Sprintf(okeyBaseUrl, config.Category) + fmt.Sprintf(okeyBaseFilter, n, okeyAmountOfGoods)
+			nextPageUrl := initialPageUrl + fmt.Sprintf(okeyBaseFilter, n, okeyAmountOfGoods)
 			fmt.Printf("Страница %v (%v): загружается...\n", i, nextPageUrl)
 
 			nextHtml, err := c.loadPage(ctx, nextPageUrl)
@@ -213,4 +187,70 @@ func (c *okeyCrawler) getInfoFromPage(html string) ([]*dto.ProductInfo, error) {
 	})
 
 	return productInfo, nil
+}
+
+func (c *okeyCrawler) LoadMajorCategory() (map[string][]*dto.ProductInfo, error) {
+	config := cfg.GetConfig()
+
+	// Для сбора инфорамции используется chromedp
+	// Это либа использует хром для перехода на страницы
+	// Причем, либа сама хэндлит кукесы и, благодаря испольованию браузера,
+	// позволяет обходить защиту от ботов (последнее справедливо для форки chromedp-undetected)
+
+	crawlerOptions := []cu.Option{
+		cu.WithTimeout(5 * time.Minute),
+	}
+
+	// Либа позволяет работать в "безголовом" режиме
+	// На винде это не работает безголовый режим,
+	// то есть на время работы тулзы браузер будет открываться
+	if config.Headless {
+		crawlerOptions = append(crawlerOptions, cu.WithHeadless())
+	}
+
+	ctx, cancel, err := cu.New(cu.NewConfig(crawlerOptions...))
+	if err != nil {
+		return nil, fmt.Errorf("Ошибка инициализации кроулера: %w", err)
+	}
+	defer cancel()
+
+	c.addListeners(ctx)
+
+	// Загружаем первую страницу категории
+	initialPageUrl := fmt.Sprintf(okeyBaseUrl, config.Category)
+	fmt.Printf("Загружаеим начальную страницу: %s\n", initialPageUrl)
+
+	html, err := c.loadPage(ctx, initialPageUrl)
+	if err != nil {
+		return nil, fmt.Errorf("Ошибка при загрузке начальной страницы категории: %w", err)
+	}
+
+	hrefs, err := c.loadMinorCategoriesRefs(*html)
+
+	goodsMap := make(map[string][]*dto.ProductInfo)
+	for _, ref := range hrefs {
+		goods, err := c.LoadPages(ctx, ref)
+		if err != nil {
+			fmt.Println(err)
+		} else {
+			goodsMap[ref] = goods
+		}
+	}
+
+	return goodsMap, nil
+}
+
+func (c *okeyCrawler) loadMinorCategoriesRefs(html string) ([]string, error) {
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+	if err != nil {
+		return nil, err
+	}
+
+	var hrefs []string
+	doc.Find(".rows.categories .product-image a[href]").Each(func(_ int, s *goquery.Selection) {
+		href, _ := s.Attr("href")
+		hrefs = append(hrefs, fmt.Sprintf(okeyBaseUrl2, href))
+	})
+
+	return hrefs, nil
 }
