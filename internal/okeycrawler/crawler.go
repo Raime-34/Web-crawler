@@ -1,28 +1,37 @@
 package okeycrawler
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	cu "github.com/Davincible/chromedp-undetected"
 	"github.com/PuerkitoBio/goquery"
 	"github.com/Raime-34/crawler.git/internal/cfg"
 	"github.com/Raime-34/crawler.git/internal/dto"
+	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
 )
 
-type okeyCrawler struct{}
-
-func NewOkeyCrawler() *okeyCrawler {
-	return &okeyCrawler{}
+type okeyCrawler struct {
+	mu     sync.Mutex
+	prices map[string]dto.PriceInfo
 }
 
-func (c *okeyCrawler) LoadPages() ([]dto.ProductInfo, error) {
+func NewOkeyCrawler() *okeyCrawler {
+	return &okeyCrawler{
+		prices: make(map[string]dto.PriceInfo),
+	}
+}
+
+func (c *okeyCrawler) LoadPages() ([]*dto.ProductInfo, error) {
 	config := cfg.GetConfig()
 
 	// Для сбора инфорамции используется chromedp
@@ -91,15 +100,43 @@ func (c *okeyCrawler) LoadPages() ([]dto.ProductInfo, error) {
 		}
 	}
 
+	fmt.Println("Подгружаем цены...")
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	for _, g := range goods {
-		fmt.Println(g)
+		if prices, ok := c.prices[g.Id]; ok {
+			g.AddPriceInfo(prices)
+		} else {
+			fmt.Printf("Цена для %v (%v) не найдена\n", g.Name, g.Id)
+		}
 	}
 
 	return goods, nil
 }
 
 func (c *okeyCrawler) addListeners(ctx context.Context) {
-	chromedp.ListenTarget(ctx, func(ev any) {})
+	chromedp.ListenTarget(ctx, func(ev any) {
+		if ev, ok := ev.(*network.EventResponseReceived); ok {
+			if ev.Type != "XHR" {
+				return
+			}
+
+			go func() {
+				ctx2 := chromedp.FromContext(ctx)
+				rbp := network.GetResponseBody(ev.RequestID)
+				body, _ := rbp.Do(cdp.WithExecutor(ctx, ctx2.Target))
+				if bytes.Contains(body, []byte("prices")) {
+					var data dto.PricesDto
+					json.Unmarshal(body, &data)
+					c.mu.Lock()
+					for k, v := range data.Prices {
+						c.prices[k] = v
+					}
+					c.mu.Unlock()
+				}
+			}()
+		}
+	})
 }
 
 func (c *okeyCrawler) loadPage(ctx context.Context, endpoint string) (*string, error) {
@@ -145,7 +182,7 @@ func (c *okeyCrawler) getAmountOfPages(html string) (*int, error) {
 	return &totalPages, nil
 }
 
-func (c *okeyCrawler) getInfoFromPage(html string) ([]dto.ProductInfo, error) {
+func (c *okeyCrawler) getInfoFromPage(html string) ([]*dto.ProductInfo, error) {
 	reader := strings.NewReader(html)
 
 	doc, err := goquery.NewDocumentFromReader(reader)
@@ -155,7 +192,7 @@ func (c *okeyCrawler) getInfoFromPage(html string) ([]dto.ProductInfo, error) {
 
 	sel := doc.Find(productContainerClass).First()
 
-	var productInfo []dto.ProductInfo
+	var productInfo []*dto.ProductInfo
 
 	sel.ChildrenFiltered("li").Each(func(i int, li *goquery.Selection) {
 		// ищем id товара
@@ -171,7 +208,8 @@ func (c *okeyCrawler) getInfoFromPage(html string) ([]dto.ProductInfo, error) {
 		img, _ := li.Find(`img[data-src]`).Attr("data-src")
 		img = fmt.Sprintf(imageBaseUrl, img)
 
-		productInfo = append(productInfo, dto.NewProductInfo(id, name, weight, img))
+		newProductInfo := dto.NewProductInfo(id, name, weight, img)
+		productInfo = append(productInfo, &newProductInfo)
 	})
 
 	return productInfo, nil
