@@ -40,7 +40,7 @@ func (c *okeyCrawler) LoadPages() ([]*dto.ProductInfo, error) {
 	// позволяет обходить защиту от ботов (последнее справедливо для форки chromedp-undetected)
 
 	crawlerOptions := []cu.Option{
-		cu.WithTimeout(20 * time.Second),
+		cu.WithTimeout(40 * time.Second),
 	}
 
 	// Либа позволяет работать в "безголовом" режиме
@@ -149,9 +149,9 @@ func (c *okeyCrawler) loadPage(ctx context.Context, endpoint string) (*string, e
 
 		chromedp.Navigate(endpoint),
 		chromedp.Reload(),
-		chromedp.Sleep(1*time.Second),
 		chromedp.WaitReady("body"),
-		chromedp.WaitVisible(productContainerClass, chromedp.ByQuery),
+		chromedp.WaitVisible("div.product-name a[title]", chromedp.ByQuery),
+		chromedp.Sleep(5*time.Second),
 		chromedp.OuterHTML("html", &htmlContent, chromedp.ByQuery),
 		chromedp.Sleep(1*time.Second),
 	); err != nil {
