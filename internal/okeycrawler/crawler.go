@@ -22,7 +22,7 @@ func NewOkeyCrawler() *okeyCrawler {
 	return &okeyCrawler{}
 }
 
-func (c *okeyCrawler) LoadPages() error {
+func (c *okeyCrawler) LoadPages() ([]dto.ProductInfo, error) {
 	config := cfg.GetConfig()
 
 	// Для сбора инфорамции используется chromedp
@@ -43,7 +43,7 @@ func (c *okeyCrawler) LoadPages() error {
 
 	ctx, cancel, err := cu.New(cu.NewConfig(crawlerOptions...))
 	if err != nil {
-		return fmt.Errorf("Ошибка инициализации кроулера: %w", err)
+		return nil, fmt.Errorf("Ошибка инициализации кроулера: %w", err)
 	}
 	defer cancel()
 
@@ -55,19 +55,19 @@ func (c *okeyCrawler) LoadPages() error {
 
 	html, err := c.loadPage(ctx, initialPageUrl)
 	if err != nil {
-		return fmt.Errorf("Ошибка при загрузке начальной страницы категории: %w", err)
+		return nil, fmt.Errorf("Ошибка при загрузке начальной страницы категории: %w", err)
 	}
 
 	// Получаем общее число страниц
 	amountOfPagesPtr, err := c.getAmountOfPages(*html)
 	if err != nil {
-		return fmt.Errorf("Не удалось получить общее число страниц: %w", err)
+		return nil, fmt.Errorf("Не удалось получить общее число страниц: %w", err)
 	}
 
 	// Получаем товары с начальной страницы
 	goods, err := c.getInfoFromPage(*html)
 	if err != nil {
-		return fmt.Errorf("Не удалось получить информацию о товарах: %w", err)
+		return nil, fmt.Errorf("Не удалось получить информацию о товарах: %w", err)
 	}
 
 	if amountOfPages := *amountOfPagesPtr; amountOfPages > 1 {
@@ -84,7 +84,7 @@ func (c *okeyCrawler) LoadPages() error {
 			nextGoods, err := c.getInfoFromPage(*nextHtml)
 			if err != nil {
 				fmt.Printf("Страница %v: ошибка\n", i)
-				return fmt.Errorf("Ошибка загрузки страницы")
+				return nil, fmt.Errorf("Ошибка загрузки страницы")
 			}
 
 			goods = append(goods, nextGoods...)
@@ -95,7 +95,7 @@ func (c *okeyCrawler) LoadPages() error {
 		fmt.Println(g)
 	}
 
-	return nil
+	return goods, nil
 }
 
 func (c *okeyCrawler) addListeners(ctx context.Context) {
@@ -111,8 +111,12 @@ func (c *okeyCrawler) loadPage(ctx context.Context, endpoint string) (*string, e
 		network.Enable(),
 
 		chromedp.Navigate(endpoint),
-		chromedp.Sleep(2*time.Second),
+		chromedp.Reload(),
+		chromedp.Sleep(1*time.Second),
+		chromedp.WaitReady("body"),
+		chromedp.WaitVisible(productContainerClass, chromedp.ByQuery),
 		chromedp.OuterHTML("html", &htmlContent, chromedp.ByQuery),
+		chromedp.Sleep(1*time.Second),
 	); err != nil {
 		return nil, fmt.Errorf("Ошибка загрузки страницы: %w", err)
 	}
@@ -158,19 +162,14 @@ func (c *okeyCrawler) getInfoFromPage(html string) ([]dto.ProductInfo, error) {
 		id, _ := li.Find(`.product[data-catentry-id]`).Attr("data-catentry-id")
 
 		// его название
-		name, _ := li.Find(`input[id^="ProductInfoName__"]`).Attr("value")
-		if name == "" {
-			name, _ = li.Find(`.product-name a`).Attr("title")
-		}
+		name, _ := li.Find(`div.product-name a`).Attr("title")
 
 		// вес
 		weight := strings.Join(strings.Fields(li.Find(".product-weight").Text()), " ")
 
 		// ссылку на превьюшку
 		img, _ := li.Find(`img[data-src]`).Attr("data-src")
-		if img == "" {
-			img, _ = li.Find("img").Attr("src")
-		}
+		img = fmt.Sprintf(imageBaseUrl, img)
 
 		productInfo = append(productInfo, dto.NewProductInfo(id, name, weight, img))
 	})
