@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"regexp"
 	"strconv"
 	"strings"
@@ -18,16 +19,19 @@ import (
 	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
+	"github.com/go-vgo/robotgo"
 )
 
 type okeyCrawler struct {
-	mu     sync.Mutex
-	prices map[string]dto.PriceInfo
+	mu       sync.Mutex
+	prices   map[string]dto.PriceInfo
+	products []dto.ProductInfo2
 }
 
 func NewOkeyCrawler() *okeyCrawler {
 	return &okeyCrawler{
-		prices: make(map[string]dto.PriceInfo),
+		prices:   make(map[string]dto.PriceInfo),
+		products: make([]dto.ProductInfo2, 0),
 	}
 }
 
@@ -189,7 +193,20 @@ func (c *okeyCrawler) getInfoFromPage(html string) ([]*dto.ProductInfo, error) {
 	return productInfo, nil
 }
 
-func (c *okeyCrawler) LoadMajorCategory() (map[string][]*dto.ProductInfo, error) {
+func (c *okeyCrawler) checkPageType(html string) string {
+	switch {
+	case strings.Contains(html, "rows categories"):
+		return majorPageType
+	case strings.Contains(html, "grid_mode grid rows"):
+		return minorPageType
+	case strings.Contains(html, "rows product_main_info"):
+		return mainProductPageType
+	default:
+		return unknownPageType
+	}
+}
+
+func (c *okeyCrawler) LoadMajorCategory() ([]dto.ProductInfo2, error) {
 	config := cfg.GetConfig()
 
 	// Для сбора инфорамции используется chromedp
@@ -198,7 +215,7 @@ func (c *okeyCrawler) LoadMajorCategory() (map[string][]*dto.ProductInfo, error)
 	// позволяет обходить защиту от ботов (последнее справедливо для форки chromedp-undetected)
 
 	crawlerOptions := []cu.Option{
-		cu.WithTimeout(5 * time.Minute),
+		cu.WithTimeout(60 * time.Minute),
 	}
 
 	// Либа позволяет работать в "безголовом" режиме
@@ -215,6 +232,7 @@ func (c *okeyCrawler) LoadMajorCategory() (map[string][]*dto.ProductInfo, error)
 	defer cancel()
 
 	c.addListeners(ctx)
+	go c.emulateMouse(ctx)
 
 	// Загружаем первую страницу категории
 	initialPageUrl := fmt.Sprintf(okeyBaseUrl, config.Category)
@@ -225,19 +243,206 @@ func (c *okeyCrawler) LoadMajorCategory() (map[string][]*dto.ProductInfo, error)
 		return nil, fmt.Errorf("Ошибка при загрузке начальной страницы категории: %w", err)
 	}
 
-	hrefs, err := c.loadMinorCategoriesRefs(*html)
+	products := c.handlePage(ctx, *html, majorPageType)
 
-	goodsMap := make(map[string][]*dto.ProductInfo)
-	for _, ref := range hrefs {
-		goods, err := c.LoadPages(ctx, ref)
-		if err != nil {
-			fmt.Println(err)
+	return products, nil
+}
+
+func (c *okeyCrawler) emulateMouse(ctx context.Context) {
+	err := robotgo.ActiveName("chrome")
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			robotgo.MoveSmooth(300, 300)
+			time.Sleep(5 * time.Second)
+			robotgo.MoveSmooth(600, 600)
+			time.Sleep(5 * time.Second)
+		}
+	}
+}
+
+func (c *okeyCrawler) handlePage(ctx context.Context, html string, prevPageType string) []dto.ProductInfo2 {
+	pageType := c.checkPageType(html)
+
+	switch pageType {
+	case majorPageType:
+		newProducts := c.handleMajorCategoryPage(ctx)
+		c.products = append(c.products, newProducts...)
+	case minorPageType:
+		if prevPageType != minorPageType {
+			c.handleMinorCategoryPage(ctx)
 		} else {
-			goodsMap[ref] = goods
+			time.Sleep(10 * time.Second)
+			c.products = append(c.products, c.handleMainProduectPage(ctx))
+		}
+	case mainProductPageType:
+		c.products = append(c.products, c.handleMainProduectPage(ctx))
+	}
+
+	return c.products
+}
+
+func (c *okeyCrawler) handleMajorCategoryPage(ctx context.Context) []dto.ProductInfo2 {
+	cardCSS := `.rows.categories > div.col-xs-5.col-sm-4.col-md-3.col-lg-3.col-xl-2.col-xl-special`
+	cardXPath := `//div[contains(@class,'rows') and contains(@class,'categories')]/div[contains(@class,'col-xs-5') and contains(@class,'col-sm-4') and contains(@class,'col-md-3') and contains(@class,'col-lg-3') and contains(@class,'col-xl-2') and contains(@class,'col-xl-special')]`
+
+	var n int
+	_ = chromedp.Run(ctx,
+		chromedp.Evaluate(`document.querySelectorAll("`+cardCSS+`").length`, &n),
+	)
+
+	var products []dto.ProductInfo2
+	for i := 1; i <= n; i++ {
+		linkXPath := fmt.Sprintf("(%s)[%d]//div[contains(@class,'product-image')]//a[@href]", cardXPath, i)
+		nameXPath := fmt.Sprintf("(%s)[%d]//h2/a", cardXPath, i)
+		var catName string
+
+		var htmlContent string
+		err := chromedp.Run(ctx,
+			chromedp.ScrollIntoView(linkXPath, chromedp.BySearch),
+			chromedp.Sleep(time.Duration(1200+rand.Intn(2400))*time.Millisecond),
+			chromedp.Text(nameXPath, &catName, chromedp.BySearch, chromedp.NodeVisible),
+			chromedp.ActionFunc(func(ctx context.Context) error {
+				fmt.Printf("Переход на %v\n", catName)
+				return nil
+			}),
+			chromedp.Click(linkXPath, chromedp.BySearch),
+
+			// якорь целевой страницы (лучше не тот же cardCSS)
+			chromedp.WaitVisible("body", chromedp.ByQuery),
+
+			chromedp.OuterHTML("html", &htmlContent, chromedp.ByQuery),
+			chromedp.ActionFunc(func(ctx context.Context) error {
+				newProducts := c.handlePage(ctx, htmlContent, majorPageType)
+				products = append(products, newProducts...)
+				return nil
+			}),
+
+			chromedp.NavigateBack(),
+			chromedp.WaitVisible(cardCSS, chromedp.ByQuery),
+		)
+		if err != nil {
+			// лог и continue
+			continue
 		}
 	}
 
-	return goodsMap, nil
+	return products
+}
+
+func (c *okeyCrawler) handleMinorCategoryPage(ctx context.Context) {
+	listCSS := `ul.grid_mode.grid`
+	itemLinkXPath := `(//ul[contains(@class,'grid_mode') and contains(@class,'grid')]//li//div[contains(@class,'product-name')]//a[@href and @title])[%d]`
+
+	// nameXPath := itemLinkXPath + `//div[contains(@class,'product-name')]//a[@href and @title]`
+
+	var n int
+	_ = chromedp.Run(ctx,
+		chromedp.Evaluate(`document.querySelectorAll("`+listCSS+` li .product-name a[title][href]").length`, &n),
+	)
+
+	for i := 1; i <= n; i++ {
+		sel := fmt.Sprintf(itemLinkXPath, i)
+
+		var name string
+		var html string
+		err := chromedp.Run(ctx,
+			chromedp.WaitVisible(listCSS, chromedp.ByQuery),
+			chromedp.ScrollIntoView(sel, chromedp.BySearch),
+			chromedp.Sleep(time.Duration(1200+rand.Intn(2600))*time.Millisecond),
+
+			chromedp.WaitReady("body"),
+			chromedp.AttributeValue(sel, "title", &name, nil, chromedp.BySearch),
+			chromedp.ActionFunc(func(ctx context.Context) error {
+				fmt.Printf("	∟ переход на страницу товара %v\n", name)
+				return nil
+			}),
+			chromedp.Click(sel, chromedp.BySearch),
+			chromedp.WaitVisible("div.product-name a[title]", chromedp.ByQuery),
+			chromedp.OuterHTML("html", &html, chromedp.ByQuery),
+			chromedp.ActionFunc(func(ctx context.Context) error {
+				c.handlePage(ctx, html, minorPageType)
+				return nil
+			}),
+
+			chromedp.NavigateBack(),
+			chromedp.WaitVisible(listCSS, chromedp.ByQuery),
+		)
+		if err != nil {
+			continue
+		}
+	}
+}
+
+func txt(s string) string { return strings.TrimSpace(strings.ReplaceAll(s, "\u00a0", " ")) }
+
+func (c *okeyCrawler) handleMainProduectPage(ctx context.Context) dto.ProductInfo2 {
+	var html string
+	_ = chromedp.Run(ctx,
+		chromedp.OuterHTML("html", &html, chromedp.ByQuery),
+	)
+
+	doc, _ := goquery.NewDocumentFromReader(strings.NewReader(html))
+
+	p := dto.ProductInfo2{Attrs: map[string]string{}}
+
+	// name
+	p.Name = txt(doc.Find("h1.main_header[itemprop='name']").First().Text())
+
+	// sku
+	if v, ok := doc.Find(`meta[itemprop="sku"]`).Attr("content"); ok {
+		p.SKU = txt(v)
+	}
+
+	// image (main)
+	if v, ok := doc.Find(`#productMainImage`).Attr("src"); ok {
+		p.Image = txt(v) // может быть относительный
+	}
+
+	// price + currency + availability (schema.org Offer)
+	offer := doc.Find(`#product-price-section[itemprop="offers"]`).First()
+	if v, ok := offer.Find(`meta[itemprop="price"]`).Attr("content"); ok {
+		p.PriceRaw = txt(v)
+	}
+	if v, ok := offer.Find(`meta[itemprop="priceCurrency"]`).Attr("content"); ok {
+		p.Currency = txt(v)
+	}
+	if v, ok := offer.Find(`link[itemprop="availability"]`).Attr("href"); ok {
+		p.Availability = txt(v) // InStock/OutOfStock
+	}
+	// цена “как на странице”
+	p.Price = txt(doc.Find(`input[id^="ProductInfoPrice_"]`).First().AttrOr("value", ""))
+
+	// атрибуты (и сверху, и в табах) — пары name/value
+	doc.Find("ul.widget-list.attributes li.attributes__item").Each(func(_ int, li *goquery.Selection) {
+		k := txt(strings.TrimSuffix(li.Find(".attributes__name").First().Text(), ":"))
+		v := txt(li.Find(".attributes__value").First().Text())
+		if k != "" && v != "" {
+			p.Attrs[k] = v
+		}
+	})
+
+	// поля внутри “Описание товара:” / “Состав товара:” / “Меры предосторожности:”
+	doc.Find(`ul.widget-list.attributes li.attributes__item`).Each(func(_ int, li *goquery.Selection) {
+		k := txt(strings.TrimSuffix(li.Find(".attributes__name").First().Text(), ":"))
+		v := txt(li.Find(".attributes__value").First().Text())
+		switch k {
+		case "Описание товара":
+			p.Desc = v
+		case "Состав товара":
+			p.Composition = v
+		case "Меры предосторожности":
+			p.Precautions = v
+		}
+	})
+
+	return p
 }
 
 func (c *okeyCrawler) loadMinorCategoriesRefs(html string) ([]string, error) {
