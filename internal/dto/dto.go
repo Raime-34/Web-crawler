@@ -31,3 +31,17 @@ type PriceInfo struct {
 	OfferPrice string `json: "offerPrice"`
 	ListPrice  string `json: "listPrice"`
 }
+
+type ProductInfo2 struct {
+	Name         string
+	SKU          string
+	Price        string
+	PriceRaw     string
+	Currency     string
+	Availability string
+	Image        string
+	Attrs        map[string]string
+	Desc         string
+	Composition  string
+	Precautions  string
+}
