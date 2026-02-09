@@ -8,4 +8,9 @@ const (
 	productContainerClass = ".grid_mode.grid"
 	okeyAmountOfGoods     = 72
 	okeyBaseFilter        = "#facet:&productBeginIndex:%v&orderBy:2&pageView:grid&pageSize:%v&"
+
+	majorPageType       = "major"
+	minorPageType       = "minor"
+	mainProductPageType = "product_main"
+	unknownPageType     = "unknown"
 )
