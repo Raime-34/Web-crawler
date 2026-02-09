@@ -215,7 +215,7 @@ func (c *okeyCrawler) LoadMajorCategory() ([]dto.ProductInfo2, error) {
 	// позволяет обходить защиту от ботов (последнее справедливо для форки chromedp-undetected)
 
 	crawlerOptions := []cu.Option{
-		cu.WithTimeout(60 * time.Minute),
+		// cu.WithTimeout(60 * time.Minute),
 	}
 
 	// Либа позволяет работать в "безголовом" режиме
@@ -442,6 +442,7 @@ func (c *okeyCrawler) handleMainProduectPage(ctx context.Context) dto.ProductInf
 		}
 	})
 
+	fmt.Printf("Извлеченные данные из страницы %v\n", p)
 	return p
 }
 
