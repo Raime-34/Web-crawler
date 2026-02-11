@@ -1,15 +1,13 @@
 package okeycrawler
 
 import (
-	"context"
 	"fmt"
 	"sync"
-	"time"
 
 	cu "github.com/Davincible/chromedp-undetected"
 	"github.com/Raime-34/crawler.git/internal/cfg"
 	"github.com/Raime-34/crawler.git/internal/dto"
-	"github.com/go-vgo/robotgo"
+	"github.com/Raime-34/crawler.git/internal/humanactionemultaion"
 )
 
 type okeyCrawler struct {
@@ -48,7 +46,7 @@ func (c *okeyCrawler) LoadMajorCategory() ([]dto.ProductInfo, error) {
 	}
 	defer cancel()
 
-	go c.emulateMouse(ctx)
+	go humanactionemultaion.EmulateMouseAction(ctx)
 
 	// Загружаем первую страницу категории
 	initialPageUrl := fmt.Sprintf(okeyBaseUrl, config.Category, config.StoreId)
@@ -62,23 +60,4 @@ func (c *okeyCrawler) LoadMajorCategory() ([]dto.ProductInfo, error) {
 	products := c.handlePage(ctx, *html, majorPageType)
 
 	return products, nil
-}
-
-func (c *okeyCrawler) emulateMouse(ctx context.Context) {
-	err := robotgo.ActiveName("chrome")
-	if err != nil {
-		fmt.Println(err)
-	}
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-			robotgo.MoveSmooth(300, 300)
-			time.Sleep(5 * time.Second)
-			robotgo.MoveSmooth(600, 600)
-			time.Sleep(5 * time.Second)
-		}
-	}
 }

@@ -21,8 +21,8 @@ func (c *okeyCrawler) loadPage(ctx context.Context, endpoint string) (*string, e
 
 		chromedp.Navigate(endpoint),
 		chromedp.Reload(),
-		chromedp.WaitReady("body"),
-		chromedp.WaitVisible("div.product-name a[title]", chromedp.ByQuery),
+		chromedp.WaitReady(body),
+		chromedp.WaitVisible(productLinkSelector, chromedp.ByQuery),
 		chromedp.Sleep(5*time.Second),
 		chromedp.OuterHTML("html", &htmlContent, chromedp.ByQuery),
 		chromedp.Sleep(1*time.Second),

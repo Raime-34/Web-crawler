@@ -3,54 +3,57 @@ package okeycrawler
 import (
 	"context"
 	"fmt"
-	"math/rand"
-	"time"
 
 	"github.com/Raime-34/crawler.git/internal/dto"
+	"github.com/Raime-34/crawler.git/internal/humanactionemultaion"
 	"github.com/chromedp/chromedp"
 )
 
 func (c *okeyCrawler) handleMajorCategoryPage(ctx context.Context) []dto.ProductInfo {
-	cardCSS := `.rows.categories > div.col-xs-5.col-sm-4.col-md-3.col-lg-3.col-xl-2.col-xl-special`
-	cardXPath := `//div[contains(@class,'rows') and contains(@class,'categories')]/div[contains(@class,'col-xs-5') and contains(@class,'col-sm-4') and contains(@class,'col-md-3') and contains(@class,'col-lg-3') and contains(@class,'col-xl-2') and contains(@class,'col-xl-special')]`
-
 	var n int
 	_ = chromedp.Run(ctx,
-		chromedp.Evaluate(`document.querySelectorAll("`+cardCSS+`").length`, &n),
+		chromedp.Evaluate(`document.querySelectorAll("`+categoryCardSelector+`").length`, &n),
 	)
 
 	var products []dto.ProductInfo
 	for i := 1; i <= n; i++ {
-		linkXPath := fmt.Sprintf("(%s)[%d]//div[contains(@class,'product-image')]//a[@href]", cardXPath, i)
-		nameXPath := fmt.Sprintf("(%s)[%d]//h2/a", cardXPath, i)
+		linkXPath := fmt.Sprintf("(%s)[%d]//div[contains(@class,'product-image')]//a[@href]", categoryCardXPath, i)
+		nameXPath := fmt.Sprintf("(%s)[%d]//h2/a", categoryCardXPath, i)
 		var catName string
 
 		var htmlContent string
 		err := chromedp.Run(ctx,
+			// скролим к ссылкам на категории
 			chromedp.ScrollIntoView(linkXPath, chromedp.BySearch),
-			chromedp.Sleep(time.Duration(1200+rand.Intn(2400))*time.Millisecond),
+			// делаем вид, что пользователь думает
+			humanactionemultaion.Thinking(),
+			// получаем название категории, в которую переходим (используется тольк для логирования)
 			chromedp.Text(nameXPath, &catName, chromedp.BySearch, chromedp.NodeVisible),
+			// логируем категорию
 			chromedp.ActionFunc(func(ctx context.Context) error {
 				fmt.Printf("Переход на %v\n", catName)
 				return nil
 			}),
+			// кликаем на категорию
 			chromedp.Click(linkXPath, chromedp.BySearch),
 
-			// якорь целевой страницы (лучше не тот же cardCSS)
-			chromedp.WaitVisible("body", chromedp.ByQuery),
+			// Ожидаем прогрузки страницы
+			chromedp.WaitVisible(body, chromedp.ByQuery),
 
+			// подгружаем страницу категории
 			chromedp.OuterHTML("html", &htmlContent, chromedp.ByQuery),
+			// обрабатываем ее
 			chromedp.ActionFunc(func(ctx context.Context) error {
 				newProducts := c.handlePage(ctx, htmlContent, majorPageType)
 				products = append(products, newProducts...)
 				return nil
 			}),
 
+			// после обработки возвращаемся назад
 			chromedp.NavigateBack(),
-			chromedp.WaitVisible(cardCSS, chromedp.ByQuery),
+			chromedp.WaitVisible(categoryCardSelector, chromedp.ByQuery),
 		)
 		if err != nil {
-			// лог и continue
 			continue
 		}
 	}

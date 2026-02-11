@@ -3,11 +3,11 @@ package okeycrawler
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/Raime-34/crawler.git/internal/humanactionemultaion"
 	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/chromedp"
 )
@@ -36,7 +36,7 @@ func (c *okeyCrawler) handleMinorCategoryPage(ctx context.Context) {
 		var roots []*cdp.Node
 		_ = chromedp.Run(
 			ctx,
-			chromedp.WaitReady("body"),
+			chromedp.WaitReady(body),
 			chromedp.Nodes(pagingRoot, &roots, chromedp.BySearch, chromedp.AtLeast(0)),
 		)
 		if len(roots) == 0 {
@@ -79,16 +79,16 @@ func (c *okeyCrawler) handleMinorCategoryPage(ctx context.Context) {
 			err := chromedp.Run(ctx,
 				chromedp.WaitVisible(listCSS, chromedp.ByQuery),
 				chromedp.ScrollIntoView(sel, chromedp.BySearch),
-				chromedp.Sleep(time.Duration(1200+rand.Intn(2600))*time.Millisecond),
+				humanactionemultaion.Thinking(),
 
-				chromedp.WaitReady("body"),
+				chromedp.WaitReady(body),
 				chromedp.AttributeValue(sel, "title", &name, nil, chromedp.BySearch),
 				chromedp.ActionFunc(func(ctx context.Context) error {
 					fmt.Printf("	∟ переход на страницу товара %v\n", name)
 					return nil
 				}),
 				chromedp.Click(sel, chromedp.BySearch),
-				chromedp.WaitVisible("div.product-name a[title]", chromedp.ByQuery),
+				chromedp.WaitVisible(productLinkSelector, chromedp.ByQuery),
 				chromedp.OuterHTML("html", &html, chromedp.ByQuery),
 				chromedp.ActionFunc(func(ctx context.Context) error {
 					c.handlePage(ctx, html, minorPageType)
@@ -139,7 +139,7 @@ func (c *okeyCrawler) handleMinorCategoryPage(ctx context.Context) {
 		currentPage++
 		err := chromedp.Run(ctx,
 			chromedp.ScrollIntoView(nextXPath, chromedp.BySearch),
-			chromedp.Sleep(time.Duration(1200+rand.Intn(2600))*time.Millisecond),
+			humanactionemultaion.Thinking(),
 			chromedp.Click(nextXPath, chromedp.BySearch),
 			chromedp.WaitVisible(listCSS, chromedp.ByQuery),
 		)
@@ -150,12 +150,11 @@ func (c *okeyCrawler) handleMinorCategoryPage(ctx context.Context) {
 
 	fmt.Println("Minor page processed")
 	for i := 0; i < currentPage-1; i++ {
-		fmt.Println("NavigateBack()")
 		chromedp.Run(
 			ctx,
 			chromedp.NavigateBack(),
 			chromedp.Sleep(1*time.Second),
-			chromedp.WaitReady("body"),
+			chromedp.WaitReady(body),
 		)
 	}
 }
