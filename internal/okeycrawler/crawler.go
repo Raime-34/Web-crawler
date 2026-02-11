@@ -5,8 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -32,63 +30,6 @@ func NewOkeyCrawler() *okeyCrawler {
 		prices:   make(map[string]dto.PriceInfo),
 		products: make([]dto.ProductInfo2, 0),
 	}
-}
-
-func (c *okeyCrawler) LoadPages(ctx context.Context, url string) ([]*dto.ProductInfo, error) {
-	// Загружаем первую страницу категории
-	initialPageUrl := url
-	fmt.Printf("Загружаеим начальную страницу: %s\n", initialPageUrl)
-
-	html, err := c.loadPage(ctx, initialPageUrl)
-	if err != nil {
-		return nil, fmt.Errorf("Ошибка при загрузке начальной страницы категории: %w", err)
-	}
-
-	// Получаем общее число страниц
-	amountOfPagesPtr, err := c.getAmountOfPages(*html)
-	if err != nil {
-		return nil, fmt.Errorf("Не удалось получить общее число страниц: %w", err)
-	}
-
-	// Получаем товары с начальной страницы
-	goods, err := c.getInfoFromPage(*html)
-	if err != nil {
-		return nil, fmt.Errorf("Не удалось получить информацию о товарах: %w", err)
-	}
-
-	if amountOfPages := *amountOfPagesPtr; amountOfPages > 1 {
-		for i := 2; i <= amountOfPages; i++ {
-			n := (i - 1) * okeyAmountOfGoods
-			nextPageUrl := initialPageUrl + fmt.Sprintf(okeyBaseFilter, n, okeyAmountOfGoods)
-			fmt.Printf("Страница %v (%v): загружается...\n", i, nextPageUrl)
-
-			nextHtml, err := c.loadPage(ctx, nextPageUrl)
-			if err != nil {
-				fmt.Println(err)
-			}
-
-			nextGoods, err := c.getInfoFromPage(*nextHtml)
-			if err != nil {
-				fmt.Printf("Страница %v: ошибка\n", i)
-				return nil, fmt.Errorf("Ошибка загрузки страницы")
-			}
-
-			goods = append(goods, nextGoods...)
-		}
-	}
-
-	fmt.Println("Подгружаем цены...")
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	for _, g := range goods {
-		if prices, ok := c.prices[g.Id]; ok {
-			g.AddPriceInfo(prices)
-		} else {
-			fmt.Printf("Цена для %v (%v) не найдена\n", g.Name, g.Id)
-		}
-	}
-
-	return goods, nil
 }
 
 func (c *okeyCrawler) addListeners(ctx context.Context) {
@@ -140,23 +81,6 @@ func (c *okeyCrawler) loadPage(ctx context.Context, endpoint string) (*string, e
 	}
 
 	return &htmlContent, nil
-}
-
-func (c *okeyCrawler) getAmountOfPages(html string) (*int, error) {
-	re := regexp.MustCompile(totalPagesRegexp)
-	matches := re.FindStringSubmatch(html)
-
-	if len(matches) < 1 {
-		return nil, fmt.Errorf("Поле totalPages не найдено")
-	}
-
-	f, err := strconv.ParseFloat(matches[1], 64)
-	if err != nil {
-		return nil, fmt.Errorf("Ошибка парсинга: %w", err)
-	}
-
-	totalPages := int(f)
-	return &totalPages, nil
 }
 
 func (c *okeyCrawler) getInfoFromPage(html string) ([]*dto.ProductInfo, error) {
