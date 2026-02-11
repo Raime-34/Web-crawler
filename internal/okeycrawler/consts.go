@@ -8,8 +8,16 @@ const (
 	mainProductPageType = "product_main"
 	unknownPageType     = "unknown"
 
-	body                 = "body"
-	productLinkSelector  = "div.product-name a[title]"
-	categoryCardSelector = `.rows.categories > div.col-xs-5.col-sm-4.col-md-3.col-lg-3.col-xl-2.col-xl-special`
-	categoryCardXPath    = `//div[contains(@class,'rows') and contains(@class,'categories')]/div[contains(@class,'col-xs-5') and contains(@class,'col-sm-4') and contains(@class,'col-md-3') and contains(@class,'col-lg-3') and contains(@class,'col-xl-2') and contains(@class,'col-xl-special')]`
+	body                         = "body"
+	productLinkSelector          = "div.product-name a[title]"
+	categoryCardSelector         = `.rows.categories > div.col-xs-5.col-sm-4.col-md-3.col-lg-3.col-xl-2.col-xl-special`
+	categoryCardXPath            = `//div[contains(@class,'rows') and contains(@class,'categories')]/div[contains(@class,'col-xs-5') and contains(@class,'col-sm-4') and contains(@class,'col-md-3') and contains(@class,'col-lg-3') and contains(@class,'col-xl-2') and contains(@class,'col-xl-special')]`
+	pagingController             = `(//div[contains(@class,'paging_controls')])[1]`
+	productLinkByIndexXPath      = `(//ul[contains(@class,'grid_mode') and contains(@class,'grid')]//li//div[contains(@class,'product-name')]//a[@href and @title])[%d]`
+	activePageLinkXPath          = `(//div[contains(@class,'paging_controls')])[1]//a[contains(@class,'active') and contains(@class,'selected')]`
+	productListingWidgetSelector = ".productListingWidget"
+	productGridSelector          = `ul.grid_mode.grid`
+
+	activePageXPath  = pagingController + `//a[contains(@class,'active') and contains(@class,'selected')]`
+	nextPageSelector = activePageXPath + `/following-sibling::a[contains(@class,'hoverover')][1]`
 )

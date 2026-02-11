@@ -13,17 +13,9 @@ import (
 )
 
 func (c *okeyCrawler) handleMinorCategoryPage(ctx context.Context) {
-	listCSS := `ul.grid_mode.grid`
-	itemLinkXPath := `(//ul[contains(@class,'grid_mode') and contains(@class,'grid')]//li//div[contains(@class,'product-name')]//a[@href and @title])[%d]`
-
-	// nameXPath := itemLinkXPath + `//div[contains(@class,'product-name')]//a[@href and @title]`
-
 	currentPage := 1
 	isOnePageCatalog := false
 	for {
-		pagingRoot := `(//div[contains(@class,'paging_controls')])[1]`
-		activeXPath := pagingRoot + `//a[contains(@class,'active') and contains(@class,'selected')]`
-
 		fmt.Println("Ожидаем контроллера страниц")
 		dCtx, cancel := context.WithDeadline(ctx, time.Now().Add(10*time.Second))
 		chromedp.Run(
@@ -33,15 +25,7 @@ func (c *okeyCrawler) handleMinorCategoryPage(ctx context.Context) {
 		cancel()
 		fmt.Println("Контроллер найден")
 
-		var roots []*cdp.Node
-		_ = chromedp.Run(
-			ctx,
-			chromedp.WaitReady(body),
-			chromedp.Nodes(pagingRoot, &roots, chromedp.BySearch, chromedp.AtLeast(0)),
-		)
-		if len(roots) == 0 {
-			isOnePageCatalog = true
-		}
+		isOnePageCatalog = checkAmountOfPage(ctx)
 		if isOnePageCatalog {
 			fmt.Println("Страница классифицирона как одностраничная")
 		} else {
@@ -49,57 +33,29 @@ func (c *okeyCrawler) handleMinorCategoryPage(ctx context.Context) {
 		}
 
 		if !isOnePageCatalog {
-			activeXPath2 := `(//div[contains(@class,'paging_controls')])[1]//a[contains(@class,'active') and contains(@class,'selected')]`
-			var pageStr string
-			_ = chromedp.Run(ctx,
-				chromedp.Text(activeXPath2, &pageStr, chromedp.BySearch),
-			)
-
-			page, _ := strconv.Atoi(strings.TrimSpace(pageStr))
-
-			if page != currentPage {
-				continue
+			page, err := getCurrentPageNumber(ctx)
+			if err != nil {
+				fmt.Printf("Ошибка извлечения номера текущей страницы: %v\n", err)
+			} else {
+				if page != currentPage {
+					continue
+				}
 			}
 		}
 
 		fmt.Printf("		текущая страница: %v\n", currentPage)
 		var n int
 		_ = chromedp.Run(ctx,
-			chromedp.WaitVisible(".productListingWidget", chromedp.ByQuery),
-			chromedp.Evaluate(`document.querySelectorAll("`+listCSS+` li .product-name a[title][href]").length`, &n),
+			chromedp.WaitVisible(productListingWidgetSelector, chromedp.ByQuery),
+			chromedp.Evaluate(`document.querySelectorAll("`+productGridSelector+` li .product-name a[title][href]").length`, &n),
 		)
 
 		fmt.Println("разбираем товары")
 		// Проходимся по карточкам товаров
 		for i := 1; i <= n; i++ {
-			sel := fmt.Sprintf(itemLinkXPath, i)
+			sel := fmt.Sprintf(productLinkByIndexXPath, i)
 
-			var name string
-			var html string
-			err := chromedp.Run(ctx,
-				chromedp.WaitVisible(listCSS, chromedp.ByQuery),
-				chromedp.ScrollIntoView(sel, chromedp.BySearch),
-				humanactionemultaion.Thinking(),
-
-				chromedp.WaitReady(body),
-				chromedp.AttributeValue(sel, "title", &name, nil, chromedp.BySearch),
-				chromedp.ActionFunc(func(ctx context.Context) error {
-					fmt.Printf("	∟ переход на страницу товара %v\n", name)
-					return nil
-				}),
-				chromedp.Click(sel, chromedp.BySearch),
-				chromedp.WaitVisible(productLinkSelector, chromedp.ByQuery),
-				chromedp.OuterHTML("html", &html, chromedp.ByQuery),
-				chromedp.ActionFunc(func(ctx context.Context) error {
-					c.handlePage(ctx, html, minorPageType)
-					return nil
-				}),
-
-				chromedp.NavigateBack(),
-				chromedp.WaitVisible(listCSS, chromedp.ByQuery),
-				chromedp.Sleep(1*time.Second),
-			)
-			if err != nil {
+			if err := c.processProduct(ctx, sel); err != nil {
 				continue
 			}
 		}
@@ -108,40 +64,21 @@ func (c *okeyCrawler) handleMinorCategoryPage(ctx context.Context) {
 			break
 		}
 
-		nextXPath := activeXPath + `/following-sibling::a[contains(@class,'hoverover')][1]`
-		var hasNext bool
-		js := fmt.Sprintf(`
-		(function () {
-			return document
-			.evaluate(
-				%q,
-				document,
-				null,
-				XPathResult.FIRST_ORDERED_NODE_TYPE,
-				null
-			)
-			.singleNodeValue !== null;
-		})()
-		`, nextXPath)
-		_ = chromedp.Run(ctx,
-			chromedp.EvaluateAsDevTools(js, &hasNext),
-		)
-
-		if !hasNext {
+		if !checkIfHasNextPage(ctx) {
 			break
 		}
 
 		var before string
 		_ = chromedp.Run(ctx,
-			chromedp.Text(activeXPath, &before, chromedp.BySearch),
+			chromedp.Text(activePageXPath, &before, chromedp.BySearch),
 		)
 
 		currentPage++
 		err := chromedp.Run(ctx,
-			chromedp.ScrollIntoView(nextXPath, chromedp.BySearch),
+			chromedp.ScrollIntoView(nextPageSelector, chromedp.BySearch),
 			humanactionemultaion.Thinking(),
-			chromedp.Click(nextXPath, chromedp.BySearch),
-			chromedp.WaitVisible(listCSS, chromedp.ByQuery),
+			chromedp.Click(nextPageSelector, chromedp.BySearch),
+			chromedp.WaitVisible(productGridSelector, chromedp.ByQuery),
 		)
 		if err != nil {
 			break
@@ -157,4 +94,78 @@ func (c *okeyCrawler) handleMinorCategoryPage(ctx context.Context) {
 			chromedp.WaitReady(body),
 		)
 	}
+}
+
+// Функция-хэлпер для определения количества страниц в категории
+func checkAmountOfPage(ctx context.Context) bool {
+	var roots []*cdp.Node
+	_ = chromedp.Run(
+		ctx,
+		chromedp.WaitReady(body),
+		chromedp.Nodes(pagingController, &roots, chromedp.BySearch, chromedp.AtLeast(0)),
+	)
+	return len(roots) == 0
+}
+
+// хэлпер для получения текущей страницы
+func getCurrentPageNumber(ctx context.Context) (int, error) {
+	var pageStr string
+	chromedp.Run(ctx,
+		chromedp.Text(activePageLinkXPath, &pageStr, chromedp.BySearch),
+	)
+
+	return strconv.Atoi(strings.TrimSpace(pageStr))
+}
+
+func (c *okeyCrawler) processProduct(ctx context.Context, sel string) error {
+	var name string
+	var html string
+	err := chromedp.Run(ctx,
+		chromedp.WaitVisible(productGridSelector, chromedp.ByQuery),
+		chromedp.ScrollIntoView(sel, chromedp.BySearch),
+		humanactionemultaion.Thinking(),
+
+		chromedp.WaitReady(body),
+		chromedp.AttributeValue(sel, "title", &name, nil, chromedp.BySearch),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			fmt.Printf("	∟ переход на страницу товара %v\n", name)
+			return nil
+		}),
+		chromedp.Click(sel, chromedp.BySearch),
+		chromedp.WaitVisible(productLinkSelector, chromedp.ByQuery),
+		chromedp.OuterHTML("html", &html, chromedp.ByQuery),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			c.handlePage(ctx, html, minorPageType)
+			return nil
+		}),
+
+		chromedp.NavigateBack(),
+		chromedp.WaitVisible(productGridSelector, chromedp.ByQuery),
+		chromedp.Sleep(1*time.Second),
+	)
+
+	return err
+}
+
+// Хэлпер для проверки наличия следующей страницы
+func checkIfHasNextPage(ctx context.Context) bool {
+	var hasNext bool
+	js := fmt.Sprintf(`
+		(function () {
+			return document
+			.evaluate(
+				%q,
+				document,
+				null,
+				XPathResult.FIRST_ORDERED_NODE_TYPE,
+				null
+			)
+			.singleNodeValue !== null;
+		})()
+		`, nextPageSelector)
+	chromedp.Run(ctx,
+		chromedp.EvaluateAsDevTools(js, &hasNext),
+	)
+
+	return hasNext
 }
