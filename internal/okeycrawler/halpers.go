@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Raime-34/crawler.git/internal/dto"
+	"github.com/chromedp/cdproto/fetch"
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
 )
@@ -19,6 +20,7 @@ func (c *okeyCrawler) loadPage(ctx context.Context, endpoint string) (*string, e
 
 		network.Enable(),
 
+		fetch.Enable().WithHandleAuthRequests(true),
 		chromedp.Navigate(endpoint),
 		chromedp.Reload(),
 		chromedp.WaitReady(body),
