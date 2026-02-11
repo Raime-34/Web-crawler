@@ -39,5 +39,5 @@ func main() {
 }
 
 type Crawler interface {
-	LoadMajorCategory() ([]dto.ProductInfo2, error)
+	LoadMajorCategory() ([]dto.ProductInfo, error)
 }

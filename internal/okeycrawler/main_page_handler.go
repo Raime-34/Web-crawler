@@ -10,7 +10,7 @@ import (
 	"github.com/chromedp/chromedp"
 )
 
-func (c *okeyCrawler) handleMainProduectPage(ctx context.Context) dto.ProductInfo2 {
+func (c *okeyCrawler) handleMainProduectPage(ctx context.Context) dto.ProductInfo {
 	var html string
 	_ = chromedp.Run(ctx,
 		chromedp.Sleep(2*time.Second),
@@ -20,7 +20,7 @@ func (c *okeyCrawler) handleMainProduectPage(ctx context.Context) dto.ProductInf
 
 	doc, _ := goquery.NewDocumentFromReader(strings.NewReader(html))
 
-	p := dto.ProductInfo2{Attrs: map[string]string{}}
+	p := dto.ProductInfo{Attrs: map[string]string{}}
 
 	// name
 	p.Name = txt(doc.Find("h1.main_header[itemprop='name']").First().Text())

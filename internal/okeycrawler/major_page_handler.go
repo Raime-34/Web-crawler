@@ -10,7 +10,7 @@ import (
 	"github.com/chromedp/chromedp"
 )
 
-func (c *okeyCrawler) handleMajorCategoryPage(ctx context.Context) []dto.ProductInfo2 {
+func (c *okeyCrawler) handleMajorCategoryPage(ctx context.Context) []dto.ProductInfo {
 	cardCSS := `.rows.categories > div.col-xs-5.col-sm-4.col-md-3.col-lg-3.col-xl-2.col-xl-special`
 	cardXPath := `//div[contains(@class,'rows') and contains(@class,'categories')]/div[contains(@class,'col-xs-5') and contains(@class,'col-sm-4') and contains(@class,'col-md-3') and contains(@class,'col-lg-3') and contains(@class,'col-xl-2') and contains(@class,'col-xl-special')]`
 
@@ -19,7 +19,7 @@ func (c *okeyCrawler) handleMajorCategoryPage(ctx context.Context) []dto.Product
 		chromedp.Evaluate(`document.querySelectorAll("`+cardCSS+`").length`, &n),
 	)
 
-	var products []dto.ProductInfo2
+	var products []dto.ProductInfo
 	for i := 1; i <= n; i++ {
 		linkXPath := fmt.Sprintf("(%s)[%d]//div[contains(@class,'product-image')]//a[@href]", cardXPath, i)
 		nameXPath := fmt.Sprintf("(%s)[%d]//h2/a", cardXPath, i)
