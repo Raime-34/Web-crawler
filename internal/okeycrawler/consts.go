@@ -1,7 +1,7 @@
 package okeycrawler
 
 const (
-	okeyBaseUrl           = "https://www.okeydostavka.ru/msk/%v"
+	okeyBaseUrl           = "https://www.okeydostavka.ru/msk/%v?storeId=%v"
 	okeyBaseUrl2          = "https://www.okeydostavka.ru%v"
 	imageBaseUrl          = "https://www.okeydostavka.ru%v"
 	totalPagesRegexp      = `WCParamJS\.totalPages\s*=\s*'([\d.]+)'`
