@@ -13,7 +13,11 @@ import (
 
 func main() {
 	var crawler Crawler = okeycrawler.NewOkeyCrawler()
-	goods, _ := crawler.LoadMajorCategory()
+	goods, err := crawler.LoadMajorCategory()
+	if err != nil {
+		fmt.Printf("Ошибка при обработке страницы: %v\n", err)
+		return
+	}
 
 	fmt.Println("Сохраняем в файл...")
 	data, err := json.Marshal(goods)

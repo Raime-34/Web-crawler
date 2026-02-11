@@ -28,10 +28,7 @@ func (c *okeyCrawler) LoadMajorCategory() ([]dto.ProductInfo, error) {
 	// Это либа использует хром для перехода на страницы
 	// Причем, либа сама хэндлит кукесы и, благодаря испольованию браузера,
 	// позволяет обходить защиту от ботов (последнее справедливо для форки chromedp-undetected)
-
-	crawlerOptions := []cu.Option{
-		// cu.WithTimeout(60 * time.Minute),
-	}
+	crawlerOptions := []cu.Option{}
 
 	// Либа позволяет работать в "безголовом" режиме
 	// На винде это не работает безголовый режим,
